@@ -1,4 +1,5 @@
 (() => {
+  document.querySelector(".sidebar-github")?.remove();
   const button = document.querySelector(".workspace-switch");
   const intro = document.querySelector(".intro-copy");
   if (!button || !intro) return;
