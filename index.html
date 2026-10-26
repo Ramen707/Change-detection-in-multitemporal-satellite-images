@@ -20,11 +20,28 @@
         <span>groundtruth<span class="brand-period">.</span></span>
       </a>
       <div class="workspace-label">WORKSPACE</div>
-      <button class="workspace-switch" type="button">
+      <div class="workspace-picker">
+      <button class="workspace-switch" id="workspace-switch" type="button" aria-expanded="false" aria-controls="workspace-menu">
         <span class="workspace-avatar">E</span>
         <span class="workspace-name">Earth observation</span>
         <span class="chevron">⌄</span>
       </button>
+      <div class="workspace-menu" id="workspace-menu" hidden>
+        <p class="workspace-menu-note">FOCUS AREAS · SAME ANALYSIS TOOL</p>
+        <button class="workspace-option selected" type="button" data-workspace="Earth observation" aria-pressed="true">
+          <span class="workspace-option-avatar">E</span><span class="workspace-option-copy"><strong>Earth observation</strong><small>General land change</small></span><span class="workspace-check" aria-hidden="true">✓</span>
+        </button>
+        <button class="workspace-option" type="button" data-workspace="Urban growth" aria-pressed="false">
+          <span class="workspace-option-avatar">U</span><span class="workspace-option-copy"><strong>Urban growth</strong><small>Buildings and expansion</small></span><span class="workspace-check" aria-hidden="true">✓</span>
+        </button>
+        <button class="workspace-option" type="button" data-workspace="Forest monitoring" aria-pressed="false">
+          <span class="workspace-option-avatar">F</span><span class="workspace-option-copy"><strong>Forest monitoring</strong><small>Clearing and regrowth</small></span><span class="workspace-check" aria-hidden="true">✓</span>
+        </button>
+        <button class="workspace-option" type="button" data-workspace="Coastal change" aria-pressed="false">
+          <span class="workspace-option-avatar">C</span><span class="workspace-option-copy"><strong>Coastal change</strong><small>Shoreline and water shifts</small></span><span class="workspace-check" aria-hidden="true">✓</span>
+        </button>
+      </div>
+      </div>
 
       <div class="side-section-label">ANALYSIS</div>
       <a class="side-link active" href="#pair"><span class="side-icon">◉</span> Change detection</a>
@@ -41,7 +58,6 @@
           <p>PCA reduces image-difference features. K-means groups pixels into changed and stable areas.</p>
           <div class="method-tags"><span>PCA</span><span>K-MEANS</span></div>
         </div>
-
       </div>
     </aside>
 
@@ -140,6 +156,37 @@
             <div class="summary-footnote"><span>ⓘ</span><p>Unsupervised results can include differences from lighting, seasonality, or image alignment.</p></div>
           </aside>
         </div>
+        <section class="evaluation-panel" aria-labelledby="evaluation-title">
+          <div class="evaluation-heading-row">
+            <div class="evaluation-heading-copy">
+              <div class="evaluation-kicker">MODEL EVALUATION</div>
+              <h3 id="evaluation-title">Compare against a reference mask</h3>
+              <p>The sample has a built-in reference mask. For your own pairs, upload a binary mask: white means changed, black means stable.</p>
+            </div>
+            <div class="evaluation-upload">
+              <input class="file-input" id="input-ground-truth" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+              <button class="evaluation-upload-button" id="upload-ground-truth" type="button">＋ Upload reference mask</button>
+              <span class="evaluation-file-name" id="ground-truth-name"></span>
+            </div>
+          </div>
+          <p class="evaluation-status" id="evaluation-status" role="status">Scores are unavailable until you provide a labeled reference mask.</p>
+          <div class="evaluation-results" id="evaluation-results" hidden>
+            <div class="evaluation-metrics" aria-label="Evaluation metrics">
+              <div class="evaluation-metric"><span>Accuracy</span><strong id="metric-accuracy">—</strong></div>
+              <div class="evaluation-metric"><span>Precision</span><strong id="metric-precision">—</strong></div>
+              <div class="evaluation-metric"><span>Recall</span><strong id="metric-recall">—</strong></div>
+              <div class="evaluation-metric"><span>F1 score</span><strong id="metric-f1">—</strong></div>
+              <div class="evaluation-metric"><span>IoU</span><strong id="metric-iou">—</strong></div>
+            </div>
+            <div class="evaluation-confusion" aria-label="Confusion counts">
+              <span>True positives <strong id="metric-tp">—</strong></span>
+              <span>False positives <strong id="metric-fp">—</strong></span>
+              <span>False negatives <strong id="metric-fn">—</strong></span>
+              <span>True negatives <strong id="metric-tn">—</strong></span>
+            </div>
+          </div>
+          <p class="evaluation-caveat" id="evaluation-caveat">These scores compare this image pair with the supplied mask. Use scenes kept separate from tuning for an independent test result.</p>
+        </section>
         <div class="result-strip"><span><i></i> ANALYSIS COMPLETE</span><span id="analysis-timestamp">—</span><span class="strip-right">Processed locally · Images never leave your device</span></div>
       </section>
 

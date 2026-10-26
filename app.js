@@ -4,6 +4,7 @@
     before: null,
     after: null,
     result: null,
+    groundTruth: null,
     currentLayer: "overlay",
     isAnalyzing: false,
     pendingSensitivity: false,
@@ -40,6 +41,59 @@
   const resultsSection = $("#results");
   const canvas = $("#result-canvas");
   const canvasContext = canvas.getContext("2d", { willReadFrequently: true });
+  const groundTruthInput = $("#input-ground-truth");
+  const workspaceSwitch = $("#workspace-switch");
+  const workspaceMenu = $("#workspace-menu");
+  const workspaceName = document.querySelector(".workspace-name");
+  const workspaceAvatar = document.querySelector(".workspace-avatar");
+  const workspaceIntro = document.querySelector(".intro-copy");
+  const workspaceCopy = {
+    "Earth observation": "Compare satellite images from two points in time. Find where the landscape shifted, pixel by pixel.",
+    "Urban growth": "Compare two dates to spot new construction, expanding neighborhoods and changing built-up areas.",
+    "Forest monitoring": "Compare two dates to highlight clearing, regrowth and broader vegetation change.",
+    "Coastal change": "Compare two dates to spot shoreline shifts, new land or water, and coastal development.",
+  };
+
+  function setWorkspace(name, save = true) {
+    if (!workspaceCopy[name]) return;
+    workspaceName.textContent = name;
+    workspaceAvatar.textContent = name.charAt(0);
+    workspaceIntro.textContent = workspaceCopy[name];
+    document.querySelectorAll(".workspace-option").forEach((option) => {
+      const selected = option.dataset.workspace === name;
+      option.classList.toggle("selected", selected);
+      option.setAttribute("aria-pressed", String(selected));
+    });
+    if (save) {
+      try { localStorage.setItem("groundtruth-workspace", name); } catch { /* Keep the choice for this page session. */ }
+    }
+  }
+
+  function closeWorkspaceMenu(returnFocus = false) {
+    workspaceMenu.hidden = true;
+    workspaceSwitch.setAttribute("aria-expanded", "false");
+    if (returnFocus) workspaceSwitch.focus();
+  }
+
+  workspaceSwitch.addEventListener("click", () => {
+    const expanded = workspaceSwitch.getAttribute("aria-expanded") === "true";
+    workspaceSwitch.setAttribute("aria-expanded", String(!expanded));
+    workspaceMenu.hidden = expanded;
+  });
+  document.querySelectorAll(".workspace-option").forEach((option) => {
+    option.addEventListener("click", () => {
+      setWorkspace(option.dataset.workspace);
+      closeWorkspaceMenu();
+      workspaceSwitch.focus();
+    });
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".workspace-picker")) closeWorkspaceMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !workspaceMenu.hidden) closeWorkspaceMenu(true);
+  });
+  try { setWorkspace(localStorage.getItem("groundtruth-workspace"), false); } catch { /* Use the default workspace. */ }
 
   for (const [key, slot] of Object.entries(slots)) {
     slot.button.addEventListener("click", () => slot.input.click());
@@ -66,6 +120,12 @@
   $("#run-analysis").addEventListener("click", runAnalysis);
   $("#download-layer").addEventListener("click", downloadCurrentLayer);
   $("#export-report").addEventListener("click", exportReport);
+  $("#upload-ground-truth").addEventListener("click", () => groundTruthInput.click());
+  groundTruthInput.addEventListener("change", () => {
+    const file = groundTruthInput.files?.[0];
+    if (file) loadGroundTruth(file);
+    groundTruthInput.value = "";
+  });
   sensitivity.addEventListener("input", updateSensitivity);
 
   document.querySelectorAll(".layer-tab").forEach((tab) => {
@@ -104,6 +164,131 @@
     image.src = url;
   }
 
+  function loadGroundTruth(file) {
+    const status = $("#evaluation-status");
+    if (!file.type.startsWith("image/")) {
+      setEvaluationError("Choose a PNG, JPG, or WEBP reference mask.");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setEvaluationError("The reference mask must be 20 MB or smaller.");
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      clearReferenceMask();
+      state.groundTruth = { image, name: file.name, objectUrl: url, width: image.width, height: image.height, isSample: false };
+      $("#ground-truth-name").textContent = file.name;
+      $("#upload-ground-truth").textContent = "↻ Replace reference mask";
+      status.classList.remove("is-error");
+      renderEvaluation();
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      setEvaluationError("That reference mask could not be opened. Try a PNG or JPG image.");
+    };
+    image.src = url;
+  }
+
+  function setEvaluationError(message) {
+    const status = $("#evaluation-status");
+    status.textContent = message;
+    status.classList.add("is-error");
+    $("#evaluation-results").hidden = true;
+  }
+
+  function clearReferenceMask() {
+    if (state.groundTruth?.objectUrl) URL.revokeObjectURL(state.groundTruth.objectUrl);
+    state.groundTruth = null;
+    $("#ground-truth-name").textContent = "";
+    $("#upload-ground-truth").textContent = "＋ Upload reference mask";
+    $("#evaluation-status").textContent = "Scores are unavailable until you provide a labeled reference mask.";
+    $("#evaluation-caveat").textContent = "These scores compare this image pair with the supplied mask. Use scenes kept separate from tuning for an independent test result.";
+    $("#evaluation-status").classList.remove("is-error");
+    $("#evaluation-results").hidden = true;
+  }
+
+  function renderEvaluation() {
+    const result = state.result;
+    const status = $("#evaluation-status");
+    const evaluationResults = $("#evaluation-results");
+    if (!result || !state.groundTruth) {
+      if (result) {
+        result.evaluation = null;
+        status.textContent = "Scores are unavailable until you provide a labeled reference mask.";
+      }
+      evaluationResults.hidden = true;
+      return;
+    }
+
+    const targetRatio = result.width / result.height;
+    const referenceRatio = state.groundTruth.width / state.groundTruth.height;
+    if (Math.abs(targetRatio - referenceRatio) / Math.max(targetRatio, referenceRatio) > 0.02) {
+      result.evaluation = null;
+      setEvaluationError("The reference mask has a different aspect ratio. Use a mask covering the same image extent.");
+      return;
+    }
+
+    const referenceCanvas = document.createElement("canvas");
+    referenceCanvas.width = result.width;
+    referenceCanvas.height = result.height;
+    const referenceContext = referenceCanvas.getContext("2d", { willReadFrequently: true });
+    referenceContext.imageSmoothingEnabled = false;
+    referenceContext.drawImage(state.groundTruth.image, 0, 0, result.width, result.height);
+    const pixels = referenceContext.getImageData(0, 0, result.width, result.height).data;
+    let truePositive = 0;
+    let trueNegative = 0;
+    let falsePositive = 0;
+    let falseNegative = 0;
+
+    for (let pixel = 0, offset = 0; pixel < result.mask.length; pixel += 1, offset += 4) {
+      const referenceChanged = (pixels[offset] + pixels[offset + 1] + pixels[offset + 2]) / 3 >= 128;
+      const predictedChanged = result.mask[pixel] !== 0;
+      if (predictedChanged && referenceChanged) truePositive += 1;
+      else if (predictedChanged) falsePositive += 1;
+      else if (referenceChanged) falseNegative += 1;
+      else trueNegative += 1;
+    }
+
+    const total = result.mask.length;
+    const precision = truePositive + falsePositive ? truePositive / (truePositive + falsePositive) : 0;
+    const recall = truePositive + falseNegative ? truePositive / (truePositive + falseNegative) : 0;
+    const f1 = precision + recall ? (2 * precision * recall) / (precision + recall) : 0;
+    const iou = truePositive + falsePositive + falseNegative
+      ? truePositive / (truePositive + falsePositive + falseNegative)
+      : 0;
+    const evaluation = {
+      referenceMask: state.groundTruth.name,
+      sampleOnly: state.groundTruth.isSample,
+      accuracy: (truePositive + trueNegative) / total,
+      precision,
+      recall,
+      f1,
+      iou,
+      confusionCounts: { truePositive, trueNegative, falsePositive, falseNegative },
+    };
+    result.evaluation = evaluation;
+
+    $("#metric-accuracy").textContent = `${(evaluation.accuracy * 100).toFixed(2)}%`;
+    $("#metric-precision").textContent = `${(precision * 100).toFixed(2)}%`;
+    $("#metric-recall").textContent = `${(recall * 100).toFixed(2)}%`;
+    $("#metric-f1").textContent = `${(f1 * 100).toFixed(2)}%`;
+    $("#metric-iou").textContent = `${(iou * 100).toFixed(2)}%`;
+    $("#metric-tp").textContent = truePositive.toLocaleString();
+    $("#metric-fp").textContent = falsePositive.toLocaleString();
+    $("#metric-fn").textContent = falseNegative.toLocaleString();
+    $("#metric-tn").textContent = trueNegative.toLocaleString();
+    status.classList.remove("is-error");
+    status.textContent = state.groundTruth.isSample
+      ? `Sample-only evaluation: compared the prediction with the known synthetic change area at ${result.width} × ${result.height} pixels.`
+      : `Compared ${result.changedCount.toLocaleString()} predicted change pixels with “${state.groundTruth.name}” at ${result.width} × ${result.height} pixels.`;
+    $("#evaluation-caveat").textContent = state.groundTruth.isSample
+      ? "Synthetic sample benchmark only. The reference marks the site and access tracks used to generate this sample; these scores are not real satellite accuracy or an independent test-set result."
+      : "These scores compare this image pair with the supplied mask. Use scenes kept separate from tuning for an independent test result.";
+    evaluationResults.hidden = false;
+  }
+
   function setSlotImage(key, image, name, size, url, width, height) {
     const slot = slots[key];
     if (state[key]?.objectUrl) URL.revokeObjectURL(state[key].objectUrl);
@@ -129,8 +314,38 @@
     const images = await Promise.all([canvasToImage(beforeCanvas), canvasToImage(afterCanvas)]);
     setSlotImage("before", images[0], "sample-area_2020.png", "Sample scene", null, 640, 420);
     setSlotImage("after", images[1], "sample-area_2024.png", "Sample scene", null, 640, 420);
+    const referenceMask = makeSampleReferenceMask();
+    state.groundTruth = {
+      image: referenceMask,
+      name: "Built-in sample reference mask",
+      objectUrl: null,
+      width: referenceMask.width,
+      height: referenceMask.height,
+      isSample: true,
+    };
+    $("#ground-truth-name").textContent = state.groundTruth.name;
+    $("#upload-ground-truth").textContent = "↻ Replace reference mask";
     slots.before.date.textContent = "JUL 2020";
     slots.after.date.textContent = "JUL 2024";
+  }
+
+  function makeSampleReferenceMask() {
+    const mask = document.createElement("canvas");
+    mask.width = 640;
+    mask.height = 420;
+    const ctx = mask.getContext("2d");
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, mask.width, mask.height);
+    ctx.fillStyle = "#fff";
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(420, 327, 88, 49, -0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillRect(382, 370, 3, 34);
+    ctx.fillRect(439, 366, 3, 38);
+    return mask;
   }
 
   function makeSampleScene(later) {
@@ -630,6 +845,7 @@
     $("#analysis-timestamp").textContent = result.completedAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }).toUpperCase();
     $("#result-subtitle").textContent = `PCA + K-means clustering · Sensitivity ${result.sensitivity}% · Local analysis`;
     $("#result-count").textContent = "01";
+    renderEvaluation();
   }
 
   function drawLayer(layer) {
@@ -661,6 +877,10 @@
         changedAreaPercent: Number(result.changedPercent.toFixed(4)),
         completedAt: result.completedAt.toISOString(),
       },
+      evaluation: result.evaluation || {
+        status: "not measured",
+        reason: "No valid reference mask was supplied for this image pair.",
+      },
       note: "Unsupervised differences may also reflect lighting, seasonality, sensor variation, or image misalignment.",
     };
     downloadBlob(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }), "change-detection-report.json");
@@ -686,6 +906,7 @@
 
   function clearResults() {
     state.result = null;
+    clearReferenceMask();
     resultsSection.hidden = true;
     resultsSection.classList.remove("has-result");
     document.querySelector(".map-canvas-wrap").style.removeProperty("aspect-ratio");
@@ -721,103 +942,4 @@
   }
 
   updateSensitivity();
-})();
-
-
-(() => {
-  document.querySelector('.sidebar-github')?.remove();
-  const button = document.querySelector(".workspace-switch");
-  const intro = document.querySelector(".intro-copy");
-  if (!button || !intro) return;
-
-  const descriptions = {
-    "Earth observation": "Compare satellite images from two points in time. Find where the landscape shifted, pixel by pixel.",
-    "Urban growth": "Compare two dates to spot new construction, expanding neighborhoods and changing built-up areas.",
-    "Forest monitoring": "Compare two dates to highlight clearing, regrowth and broader vegetation change.",
-    "Coastal change": "Compare two dates to spot shoreline shifts, new land or water, and coastal development."
-  };
-  const picker = document.createElement("div");
-  picker.className = "workspace-picker";
-  button.parentNode.insertBefore(picker, button);
-  picker.append(button);
-  button.id = "workspace-switch";
-  button.setAttribute("aria-expanded", "false");
-  button.setAttribute("aria-controls", "workspace-menu");
-
-  const style = document.createElement("style");
-  style.textContent = [
-    ".workspace-picker{position:relative;width:100%}",
-    ".workspace-menu{position:absolute;z-index:20;top:calc(100% + 7px);left:0;width:100%;min-width:212px;padding:7px;border:1px solid #dce2d8;border-radius:9px;background:#fff;box-shadow:0 14px 32px #24301e24}",
-    ".workspace-menu-note{margin:4px 6px 7px;color:#798371;font:9px DM Mono,monospace;letter-spacing:.5px}",
-    ".workspace-option{display:flex;width:100%;align-items:center;gap:9px;padding:8px 7px;border:0;border-radius:6px;background:transparent;text-align:left;cursor:pointer}",
-    ".workspace-option:hover,.workspace-option.selected{background:#eff4e8}",
-    ".workspace-option-avatar{display:grid;width:27px;height:27px;flex:0 0 auto;place-items:center;border-radius:6px;color:#526c2c;background:#e6efd4;font:700 11px Manrope,sans-serif}",
-    ".workspace-option-copy{display:flex;min-width:0;flex:1;flex-direction:column;gap:2px}",
-    ".workspace-option-copy strong{color:#2f382a;font-size:12px;font-weight:600}",
-    ".workspace-option-copy small{color:#788170;font-size:10px}",
-    ".workspace-check{color:#587b2d;font-size:13px;opacity:0}",
-    ".workspace-option.selected .workspace-check{opacity:1}",
-    "@media(max-width:820px){.workspace-menu{top:0;left:calc(100% + 8px)}}"
-  ].join("");
-  document.head.append(style);
-
-  const menu = document.createElement("div");
-  menu.className = "workspace-menu";
-  menu.id = "workspace-menu";
-  menu.hidden = true;
-  menu.innerHTML = '<p class="workspace-menu-note">FOCUS AREAS · SAME ANALYSIS TOOL</p>';
-  const labels = [
-    ["Earth observation", "General land change"],
-    ["Urban growth", "Buildings and expansion"],
-    ["Forest monitoring", "Clearing and regrowth"],
-    ["Coastal change", "Shoreline and water shifts"]
-  ];
-  const options = labels.map(([name, detail]) => {
-    const item = document.createElement("button");
-    item.className = "workspace-option";
-    item.type = "button";
-    item.dataset.workspace = name;
-    item.setAttribute("aria-pressed", "false");
-    item.innerHTML = '<span class="workspace-option-avatar">' + name[0] + '</span><span class="workspace-option-copy"><strong>' + name + '</strong><small>' + detail + '</small></span><span class="workspace-check" aria-hidden="true">✓</span>';
-    menu.append(item);
-    return item;
-  });
-  picker.append(menu);
-
-  const setWorkspace = (name, save = true) => {
-    if (!descriptions[name]) return;
-    button.querySelector(".workspace-name").textContent = name;
-    button.querySelector(".workspace-avatar").textContent = name[0];
-    intro.textContent = descriptions[name];
-    options.forEach((item) => {
-      const selected = item.dataset.workspace === name;
-      item.classList.toggle("selected", selected);
-      item.setAttribute("aria-pressed", String(selected));
-    });
-    if (save) {
-      try { localStorage.setItem("groundtruth-workspace", name); } catch { /* Use this page session only. */ }
-    }
-  };
-  const close = (restoreFocus = false) => {
-    menu.hidden = true;
-    button.setAttribute("aria-expanded", "false");
-    if (restoreFocus) button.focus();
-  };
-  button.addEventListener("click", () => {
-    const open = button.getAttribute("aria-expanded") === "true";
-    button.setAttribute("aria-expanded", String(!open));
-    menu.hidden = open;
-  });
-  options.forEach((item) => item.addEventListener("click", () => {
-    setWorkspace(item.dataset.workspace);
-    close(true);
-  }));
-  document.addEventListener("click", (event) => {
-    if (!picker.contains(event.target)) close();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !menu.hidden) close(true);
-  });
-  try { setWorkspace(localStorage.getItem("groundtruth-workspace") || "Earth observation", false); }
-  catch { setWorkspace("Earth observation", false); }
 })();
