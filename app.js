@@ -8,6 +8,8 @@
     currentLayer: "overlay",
     isAnalyzing: false,
     pendingSensitivity: false,
+    isAIAnalyzing: false,
+    aiRequestController: null,
   };
 
   const slots = {
@@ -42,6 +44,13 @@
   const canvas = $("#result-canvas");
   const canvasContext = canvas.getContext("2d", { willReadFrequently: true });
   const groundTruthInput = $("#input-ground-truth");
+  const aiConsent = $("#ai-consent");
+  const aiButton = $("#analyze-with-ai");
+  const aiStatus = $("#ai-status");
+  const aiResults = $("#ai-results");
+  const aiSummary = $("#ai-summary");
+  const aiObservations = $("#ai-observations");
+  const aiApiBase = (window.GROUNDTRUTH_AI_API_BASE || "").replace(/\/$/, "");
   const workspaceSwitch = $("#workspace-switch");
   const workspaceMenu = $("#workspace-menu");
   const workspaceName = document.querySelector(".workspace-name");
@@ -127,6 +136,8 @@
     groundTruthInput.value = "";
   });
   sensitivity.addEventListener("input", updateSensitivity);
+  aiConsent.addEventListener("change", updateAIControls);
+  aiButton.addEventListener("click", analyzeWithAI);
 
   document.querySelectorAll(".layer-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -501,6 +512,7 @@
       return;
     }
     state.isAnalyzing = true;
+    updateAIControls();
     hideError();
     runButton.disabled = true;
     runButton.classList.add("loading");
@@ -542,7 +554,9 @@
         sensitivity: Number(sensitivity.value),
         completedAt: new Date(),
         beforeData,
+        aiInterpretation: null,
       };
+      resetAIAnalysis();
       showResults();
       drawLayer(state.currentLayer);
     } catch (error) {
@@ -550,6 +564,7 @@
       showError(error instanceof Error ? error.message : "Analysis failed. Please try another image pair.");
     } finally {
       state.isAnalyzing = false;
+      updateAIControls();
       runButton.disabled = !(state.before && state.after);
       runButton.classList.remove("loading");
       runButton.querySelector("span:nth-child(2)").textContent = "Run analysis";
@@ -559,7 +574,6 @@
       }
     }
   }
-
   function imageCanvas(image, width, height) {
     const target = document.createElement("canvas");
     target.width = width;
@@ -831,6 +845,150 @@
     return new ImageData(output, width, height);
   }
 
+  function updateAIControls() {
+    aiButton.disabled = !state.result || !aiConsent.checked || state.isAIAnalyzing || state.isAnalyzing;
+    aiConsent.disabled = state.isAIAnalyzing || state.isAnalyzing;
+  }
+
+  function resetAIAnalysis() {
+    state.aiRequestController?.abort();
+    state.aiRequestController = null;
+    state.isAIAnalyzing = false;
+    if (state.result) state.result.aiInterpretation = null;
+    aiConsent.checked = false;
+    aiConsent.disabled = false;
+    aiResults.hidden = true;
+    aiSummary.textContent = "";
+    aiObservations.replaceChildren();
+    aiStatus.classList.remove("is-error");
+    aiStatus.textContent = "No images are sent unless you check this box and choose Analyze with AI.";
+    aiButton.querySelector(".ai-button-label").textContent = "Analyze with AI";
+    updateAIControls();
+  }
+  function createMaskDataUrl(result) {
+    const maskCanvas = document.createElement("canvas");
+    maskCanvas.width = result.width;
+    maskCanvas.height = result.height;
+    const context = maskCanvas.getContext("2d");
+    const imageData = context.createImageData(result.width, result.height);
+    for (let pixel = 0, offset = 0; pixel < result.mask.length; pixel += 1, offset += 4) {
+      const value = result.mask[pixel] ? 255 : 0;
+      imageData.data[offset] = value;
+      imageData.data[offset + 1] = value;
+      imageData.data[offset + 2] = value;
+      imageData.data[offset + 3] = 255;
+    }
+    context.putImageData(imageData, 0, 0);
+    return maskCanvas.toDataURL("image/png");
+  }
+
+  function imageDataUrl(image, width, height) {
+    const resized = imageCanvas(image, width, height);
+    return resized.toDataURL("image/jpeg", 0.84);
+  }
+
+  function setAIStatus(message, isError = false) {
+    aiStatus.textContent = message;
+    aiStatus.classList.toggle("is-error", isError);
+  }
+
+  async function analyzeWithAI() {
+    if (!state.result || !state.before || !state.after || !aiConsent.checked || state.isAIAnalyzing) return;
+    if (!aiApiBase) {
+      setAIStatus("The AI service endpoint has not been configured yet.", true);
+      return;
+    }
+
+    const analyzingResult = state.result;
+    const controller = new AbortController();
+    state.aiRequestController = controller;
+    state.isAIAnalyzing = true;
+    updateAIControls();
+    aiButton.querySelector(".ai-button-label").textContent = "Analyzing images…";
+    aiResults.hidden = true;
+    setAIStatus("Sending resized images and the detected mask through this project's AI service to OpenAI…");
+
+    try {
+      const { width, height } = analyzingResult;
+      const payload = {
+        width,
+        height,
+        beforeImage: imageDataUrl(state.before.image, width, height),
+        afterImage: imageDataUrl(state.after.image, width, height),
+        changeMask: createMaskDataUrl(analyzingResult),
+      };
+      const timeout = window.setTimeout(() => controller.abort(), 65000);
+      let response;
+      try {
+        response = await fetch(`${aiApiBase}/api/analyze-change`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeout);
+      }
+      if (state.result !== analyzingResult || state.aiRequestController !== controller) return;
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "AI analysis could not be completed. Please try again later.");
+      if (!body.analysis || typeof body.analysis.summary !== "string" || !Array.isArray(body.analysis.observations)) {
+        throw new Error("The AI service returned an incomplete interpretation. Please try again.");
+      }
+
+      const analysis = body.analysis;
+      analyzingResult.aiInterpretation = analysis;
+      aiSummary.textContent = analysis.summary;
+      aiObservations.replaceChildren();
+      const categoryLabels = {
+        buildings: "Built-up areas",
+        vegetation: "Vegetation",
+        water: "Water",
+        roads: "Roads",
+        bare_ground: "Bare ground",
+        other: "Other",
+        uncertain: "Uncertain",
+      };
+      const directionLabels = {
+        increase: "increase",
+        decrease: "decrease",
+        new: "new appearance",
+        removed: "no longer visible",
+        mixed: "mixed change",
+        uncertain: "uncertain direction",
+      };
+      for (const item of analysis.observations) {
+        const row = document.createElement("li");
+        const heading = document.createElement("strong");
+        heading.textContent = `${categoryLabels[item.category] || "Observed feature"} · ${directionLabels[item.direction] || "change"}`;
+        const evidence = document.createElement("span");
+        evidence.textContent = item.evidence;
+        row.append(heading, evidence);
+        aiObservations.append(row);
+      }
+      if (!analysis.observations.length) {
+        const row = document.createElement("li");
+        row.textContent = "No specific change type could be determined from these images.";
+        aiObservations.append(row);
+      }
+      $("#ai-caveat").textContent = analysis.caveat || "AI interpretation is an aid for review, not verified ground truth.";
+      aiResults.hidden = false;
+      setAIStatus("AI interpretation complete. Review the imagery before treating any suggested change as real.");
+    } catch (error) {
+      if (state.result !== analyzingResult || state.aiRequestController !== controller) return;
+      const message = error?.name === "AbortError"
+        ? "AI analysis timed out. Please try again with smaller or clearer images."
+        : error instanceof Error ? error.message : "AI analysis failed. Please try again later.";
+      setAIStatus(message, true);
+    } finally {
+      if (state.aiRequestController === controller) {
+        state.aiRequestController = null;
+        state.isAIAnalyzing = false;
+        aiButton.querySelector(".ai-button-label").textContent = "Analyze with AI";
+        updateAIControls();
+      }
+    }
+  }
   function showResults() {
     const result = state.result;
     canvas.width = result.width;
@@ -846,6 +1004,7 @@
     $("#result-subtitle").textContent = `PCA + K-means clustering · Sensitivity ${result.sensitivity}% · Local analysis`;
     $("#result-count").textContent = "01";
     renderEvaluation();
+    updateAIControls();
   }
 
   function drawLayer(layer) {
@@ -881,6 +1040,9 @@
         status: "not measured",
         reason: "No valid reference mask was supplied for this image pair.",
       },
+      aiInterpretation: result.aiInterpretation
+        ? { status: "completed", ...result.aiInterpretation }
+        : { status: "not requested" },
       note: "Unsupervised differences may also reflect lighting, seasonality, sensor variation, or image misalignment.",
     };
     downloadBlob(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }), "change-detection-report.json");
@@ -906,6 +1068,7 @@
 
   function clearResults() {
     state.result = null;
+    resetAIAnalysis();
     clearReferenceMask();
     resultsSection.hidden = true;
     resultsSection.classList.remove("has-result");

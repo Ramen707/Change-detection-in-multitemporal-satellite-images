@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <script src="ai-config.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -187,7 +188,27 @@
           </div>
           <p class="evaluation-caveat" id="evaluation-caveat">These scores compare this image pair with the supplied mask. Use scenes kept separate from tuning for an independent test result.</p>
         </section>
-        <div class="result-strip"><span><i></i> ANALYSIS COMPLETE</span><span id="analysis-timestamp">—</span><span class="strip-right">Processed locally · Images never leave your device</span></div>
+        <section class="ai-panel" aria-labelledby="ai-title">
+          <div class="ai-heading-row">
+            <div class="evaluation-heading-copy">
+              <div class="evaluation-kicker">OPTIONAL AI INTERPRETATION</div>
+              <h3 id="ai-title">Describe the likely changes</h3>
+              <p>The AI compares both dates and the detected mask. It can suggest visible change types, but cannot confirm their cause.</p>
+            </div>
+            <button class="ai-button" id="analyze-with-ai" type="button" disabled><span class="ai-button-label">Analyze with AI</span><span aria-hidden="true">↗</span></button>
+          </div>
+          <label class="ai-consent" for="ai-consent">
+            <input id="ai-consent" type="checkbox">
+            <span>I agree to send resized copies of both images and the generated change mask to this project's Render AI service, which forwards them to OpenAI for this analysis.</span>
+          </label>
+          <p class="evaluation-status ai-status" id="ai-status" role="status">No images are sent unless you check this box and choose Analyze with AI.</p>
+          <div class="ai-results" id="ai-results" hidden>
+            <div class="ai-summary-block"><span class="evaluation-kicker">AI SUMMARY</span><p id="ai-summary"></p></div>
+            <div class="ai-observations-block"><span class="evaluation-kicker">VISIBLE PATTERNS</span><ul id="ai-observations"></ul></div>
+            <p class="evaluation-caveat" id="ai-caveat">AI interpretation is an aid for review, not verified ground truth.</p>
+          </div>
+        </section>
+        <div class="result-strip"><span><i></i> ANALYSIS COMPLETE</span><span id="analysis-timestamp">—</span><span class="strip-right">Change map runs locally · AI upload is optional</span></div>
       </section>
 
       <footer class="page-footer"><span>GROUNDTRUTH <span class="brand-period">•</span> REMOTE SENSING WORKSPACE</span><span>UNSUPERVISED CHANGE DETECTION <span class="footer-divider">/</span> PCA + K-MEANS</span></footer>

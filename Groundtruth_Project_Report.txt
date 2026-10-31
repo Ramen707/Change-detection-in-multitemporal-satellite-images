@@ -1,0 +1,163 @@
+GROUNDTRUTH
+MULTI-TEMPORAL SATELLITE IMAGE CHANGE DETECTION
+Project Report
+
+1. PROJECT SUMMARY
+
+Groundtruth compares two satellite views of the same area captured at different times. It highlights pixels whose visible colour values differ and produces a change mask, an overlay, and a difference image. The method combines per-pixel image differencing, Principal Component Analysis (PCA), and two-cluster K-means. It is an unsupervised change-detection baseline: it finds visual differences but does not identify what caused them or assign semantic labels such as building, road, or forest. An optional cloud AI interpretation can suggest likely visible categories from the image pair and mask; it is not ground truth.
+
+2. PROBLEM AND OBJECTIVES
+
+Satellite images of the same place can reveal urban expansion, vegetation loss or regrowth, shoreline movement, water change, and other land-cover differences. The task is to compare an earlier image with a later image and estimate which locations changed.
+
+Project objectives:
+- Accept a temporally separated pair of images of the same area.
+- Estimate a pixel-level change map without requiring hand-labelled training data.
+- Display the detected area over the later image and provide a separate mask and difference layer.
+- Summarize the number and percentage of changed pixels.
+- Make sensitivity adjustable so a user can inspect more or fewer candidate change pixels.
+
+3. DATASET
+
+The image collection contains eight multi-temporal scene pairs derived from Landsat imagery. Each scene folder contains two main JPEG images and smaller versions marked with “_md” in the filename. The smaller files are alternate-size copies, not additional acquisition dates.
+
+Scene                         Earlier filename/date label     Later filename/date label
+Andasol                       09051987                        09122013
+Arcadia Lake                  1986 (08121986_md)              2011 (08012011_md)
+Argentina                     01131994                        01202014
+Ayakkum Lake                  09212003                        09132012
+Cubbie Station                08311987                        08232013
+Dubai                         11272000                        11122012
+Elephant Butte                08201991                        08272011
+Goksu River                   07111987                        07132011
+
+The eight-digit date labels are shown as stored in the image filenames; they appear to use MMDDYYYY. Arcadia Lake’s main image names contain only the year, so its day-level labels come from the smaller image filenames. These are filename labels; confirm acquisition dates and sensor metadata from scene records before using them as formal metadata.
+
+Dataset values and representation:
+- The dataset is image-based rather than a table of rows. Every pixel contains image intensity values.
+- JPEG scenes are decoded into colour channels. In the current image-processing workflow, each red, green, and blue channel is represented by an 8-bit value from 0 to 255.
+- The algorithm uses normalized absolute colour differences, from 0 to 1, as features. These values are display-image intensities, not calibrated surface reflectance or physical measurements.
+- No accompanying CSV of pixel values, class labels, or verified change masks is specified.
+- Exact sensor generation, spectral-band composition, coordinate reference system, ground sample distance, cloud metadata, and georeferencing are not included in the image-level dataset description. Do not infer those values from a JPEG alone.
+
+A built-in illustrative sample can also be generated for a functional demonstration. It is synthetic, 640 × 420 pixels, and includes an intentionally added built-up patch in the later image. A matching synthetic reference mask marks that patch and its access tracks as changed. It is not a Landsat observation and must not be used as scientific validation data.
+
+4. INPUT PREPARATION AND ASSUMPTIONS
+
+A reliable comparison requires two images showing the same ground footprint. They should be co-registered, have the same orientation and aspect ratio, and be as similar as possible in season, illumination, atmospheric conditions, and sensor processing. Misalignment can create strong edge differences that look like land change.
+
+The implementation checks that the pair has nearly matching aspect ratios (within about 2%) and rescales images for processing so the longest side is no more than 1,000 pixels. It works with ordinary colour images; it does not use GeoTIFF coordinates or align images from geospatial metadata. The images are compared in their decoded colour space.
+
+5. MACHINE-LEARNING CONCEPTS
+
+Unsupervised learning
+The workflow does not need examples labelled “changed” and “unchanged” to form its initial groups. It groups the pixel-difference features found in the current image pair. This makes the approach usable without a manually labelled mask, but it also means the groups are not guaranteed to match real-world change.
+
+Pixel differencing
+For each corresponding pixel, the method calculates absolute channel differences:
+
+  dR = |R_later - R_earlier| / 255
+  dG = |G_later - G_earlier| / 255
+  dB = |B_later - B_earlier| / 255
+
+A combined colour-difference magnitude is:
+
+  D = sqrt((dR^2 + dG^2 + dB^2) / 3)
+
+Large values indicate stronger visible differences. A colour difference can also be caused by shadow, seasonal vegetation, haze, sensor variation, or imperfect alignment.
+
+Principal Component Analysis (PCA)
+PCA centers the colour-difference features and projects them onto directions that explain variation in the data. The implementation uses the first two principal components to represent each pixel with a compact two-value feature vector. PCA reduces redundancy and provides a space for clustering; it does not itself decide whether a pixel changed.
+
+K-means clustering
+K-means separates the two-component pixel features into two groups by iteratively assigning pixels to the nearest cluster centre and updating the centres. The cluster with the greater average colour-difference magnitude is treated as the candidate changed group. The two groups mean “more different” and “less different” in this pair, not necessarily “changed” and “unchanged” in a verified ground-truth sense.
+
+Spatial cleanup
+A 3 × 3 majority filter removes isolated pixels and smooths small speckles in the binary mask. This improves visual continuity but can also remove very small changes or soften boundaries.
+
+Sensitivity
+The sensitivity control changes the decision margin around the cluster boundary. The default is 50 on a 0–100 scale. It controls how many pixels are highlighted; it is not a confidence score and is not model accuracy.
+
+AI-assisted interpretation
+
+After the local mask is generated, users may opt in to a cloud vision-model call. The app sends resized earlier and later images plus the binary candidate mask to the project API, which forwards them to OpenAI and returns a short description of likely visible categories. This is a separate interpretation aid: it does not create or modify the PCA + K-means mask, it is not trained on the eight-scene collection, and it may misclassify subtle or seasonal differences. The feature requires user consent for each request and may incur API usage charges.
+6. MODEL FITTING / TRAINING
+
+The local change-map algorithm has no supervised training phase and no trained set of model weights. For each new image pair, it calculates that pair’s difference features, estimates PCA directions from those features, and fits two K-means cluster centres to them. In machine-learning terms, PCA and K-means are fitted anew to the current pair during analysis. The optional AI interpretation uses a pretrained cloud vision model; it is not fine-tuned on this project’s eight scenes and does not alter the locally generated mask.
+
+Because the model is fitted to each pair independently, the same sensitivity setting can produce different changed-area percentages on different scenes. The method does not learn a reusable building, vegetation, or water classifier across multiple scenes.
+
+7. PREDICTION / INFERENCE WORKFLOW
+
+1. Load an earlier and later image of the same area.
+2. Check image compatibility and scale the pair for processing.
+3. Calculate per-pixel colour differences.
+4. Center the difference features and project them into the first two PCA components.
+5. Fit two K-means clusters and identify the cluster with the larger mean difference magnitude.
+6. Apply the sensitivity boundary and 3 × 3 majority filter.
+7. Produce the change mask, difference layer, and change overlay on the later image.
+8. Report changed-pixel count and changed-area percentage.
+9. Optionally, after explicit consent, send resized copies of both dates and the generated mask to the cloud AI service for a brief visual interpretation.
+
+The outputs answer “where do the image pixels differ?” They do not explain why a difference occurred or determine an object category.
+
+8. OUTPUT VALUES AND INTERPRETATION
+
+For an analyzed image of width W and height H:
+
+  Total pixels = W × H
+  Changed-area percentage = 100 × changed-pixel count / (W × H)
+
+The summary values are pair-specific. Changed-pixel count and changed-area percentage describe the detected mask, not correctness. The overlay shows the highlighted mask on the later image; the change mask shows the binary result; the difference layer visualizes per-pixel intensity differences.
+
+9. TESTING, VALIDATION, AND ACCURACY
+
+The web application evaluates a prediction when a reference mask is available. For the built-in synthetic sample, the application includes a reference mask generated from the known synthetic change area. On the default sample at 640 × 420 pixels and 50% sensitivity, the evaluation is:
+
+Metric                         Sample result
+Accuracy                       98.98%
+Precision                      99.85%
+Recall                         81.12%
+F1 score                       89.52%
+Intersection over Union (IoU)  81.02%
+
+Confusion counts for this run:
+True positives (TP)            11,699
+False positives (FP)           17
+True negatives (TN)            254,361
+False negatives (FN)           2,723
+
+These are sample-only benchmark values. The reference mask describes the synthetic built-up patch and access tracks used to construct the sample. The sample and its mask are not real satellite observations, were not independently annotated, and do not represent a held-out test set. The high sample scores therefore do not establish real-world accuracy or generalization. Results can change when the input images, reference mask, or sensitivity setting changes.
+
+For an uploaded image pair, evaluation is calculated only after a compatible binary reference mask is supplied. White pixels mean changed and black pixels mean stable. Compare the predicted mask with the reference mask pixel by pixel:
+- True positive (TP): predicted changed and reference changed.
+- False positive (FP): predicted changed but reference unchanged.
+- True negative (TN): predicted unchanged and reference unchanged.
+- False negative (FN): predicted unchanged but reference changed.
+
+Standard metrics:
+  Accuracy  = (TP + TN) / (TP + FP + TN + FN)
+  Precision = TP / (TP + FP)
+  Recall    = TP / (TP + FN)
+  F1        = 2 × Precision × Recall / (Precision + Recall)
+  IoU       = TP / (TP + FP + FN)
+
+To establish performance on the Landsat-derived scene collection, create human-verified reference masks, keep all images from a scene in the same split, tune sensitivity on a validation split, and calculate final metrics on scenes not used for tuning. Report per-scene results and the mean across scenes. Include a confusion matrix and document how ambiguous seasonal or illumination differences were labelled. Until this independent scene-level evaluation is completed, real-dataset accuracy should be reported as “not measured”; the synthetic sample scores must be clearly separated from it.
+
+Functional checks can confirm that valid pairs load, incompatible image shapes are rejected, the algorithm produces all three result layers, and changing sensitivity updates the mask. These checks show that the workflow runs; they are not a scientific accuracy evaluation.
+
+10. LIMITATIONS
+
+- Pixel differences are sensitive to registration errors, shadows, season, atmospheric effects, and sensor or colour-processing changes.
+- JPEG colour values are not calibrated reflectance values.
+- Two-cluster unsupervised grouping can miss subtle changes or highlight irrelevant differences.
+- The majority filter may erase tiny objects or change boundaries.
+- The output is a binary change estimate, not semantic segmentation.
+- The described image collection has no accompanying ground-truth masks or reported benchmark scores.
+- The method operates on image pixels and does not preserve geographic coordinates or area in square metres.
+- The optional AI interpretation can mistake shadows, seasonal variation, image artefacts, or low-resolution features for land-cover change.
+- Cloud AI interpretation sends the resized image pair and mask to the project API, which forwards them to OpenAI. API requests may incur usage charges.
+
+11. CONCLUSION
+
+Groundtruth provides a local unsupervised baseline for comparing multi-temporal Landsat-derived image pairs, with optional cloud AI summaries of likely visible change categories. PCA, two-cluster K-means, and spatial filtering produce the actual pixel mask; AI interpretations are suggestions. The dataset supplies examples from eight locations, but reliable claims about model accuracy require labelled reference masks and independent scene-level testing. The built-in synthetic scores are only a demonstration, and real-scene accuracy remains not measured.
