@@ -118,11 +118,11 @@ function applyLimits(ip) {
 }
 
 function outputTextFrom(response) {
-  return (response.candidates || [])
-    .flatMap((candidate) => candidate.content?.parts || [])
-    .filter((part) => typeof part.text === "string")
+  const candidate = response.candidates?.[0];
+  return (candidate?.content?.parts || [])
+    .filter((part) => typeof part.text === "string" && part.thought !== true)
     .map((part) => part.text)
-    .join("\n");
+    .join("");
 }
 
 function geminiImagePart(dataUrl) {
@@ -131,22 +131,22 @@ function geminiImagePart(dataUrl) {
   return { inlineData: { mimeType: match[1], data: match[2] } };
 }
 const responseSchema = {
-  type: "OBJECT",
+  type: "object",
   properties: {
-    summary: { type: "STRING" },
+    summary: { type: "string" },
     observations: {
-      type: "ARRAY",
+      type: "array",
       items: {
-        type: "OBJECT",
+        type: "object",
         properties: {
-          category: { type: "STRING", enum: ["buildings", "vegetation", "water", "roads", "bare_ground", "other", "uncertain"] },
-          direction: { type: "STRING", enum: ["increase", "decrease", "new", "removed", "mixed", "uncertain"] },
-          evidence: { type: "STRING" },
+          category: { type: "string", enum: ["buildings", "vegetation", "water", "roads", "bare_ground", "other", "uncertain"] },
+          direction: { type: "string", enum: ["increase", "decrease", "new", "removed", "mixed", "uncertain"] },
+          evidence: { type: "string" },
         },
         required: ["category", "direction", "evidence"],
       },
     },
-    caveat: { type: "STRING" },
+    caveat: { type: "string" },
   },
   required: ["summary", "observations", "caveat"],
 };
@@ -192,8 +192,13 @@ async function analyzeChange(input) {
           contents: [{ role: "user", parts }],
           generationConfig: {
             maxOutputTokens: 700,
-            responseMimeType: "application/json",
-            responseSchema,
+            thinkingConfig: { thinkingLevel: "low" },
+            responseFormat: {
+              text: {
+                mimeType: "APPLICATION_JSON",
+                schema: responseSchema,
+              },
+            },
           },
         }),
         signal: abortController.signal,
