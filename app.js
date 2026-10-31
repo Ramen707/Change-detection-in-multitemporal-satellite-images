@@ -906,7 +906,7 @@
     updateAIControls();
     aiButton.querySelector(".ai-button-label").textContent = "Analyzing images…";
     aiResults.hidden = true;
-    setAIStatus("Sending resized images and the detected mask through this project's AI service to OpenAI…");
+    setAIStatus("Sending resized images and the detected mask through this project's AI service to Google Gemini…");
 
     try {
       const { width, height } = analyzingResult;

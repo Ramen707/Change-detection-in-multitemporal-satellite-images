@@ -14,10 +14,10 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
-      - key: OPENAI_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
-      - key: OPENAI_MODEL
-        value: gpt-5.4-mini
+      - key: GEMINI_MODEL
+        value: gemini-3-flash-preview
       - key: ALLOWED_ORIGINS
         value: https://groundtruth-change-detection.onrender.com,http://localhost:8000,http://127.0.0.1:8000
       - key: AI_RATE_LIMIT_PER_MINUTE

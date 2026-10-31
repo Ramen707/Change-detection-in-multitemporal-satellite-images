@@ -199,8 +199,9 @@
           </div>
           <label class="ai-consent" for="ai-consent">
             <input id="ai-consent" type="checkbox">
-            <span>I agree to send resized copies of both images and the generated change mask to this project's Render AI service, which forwards them to OpenAI for this analysis.</span>
+            <span>I agree to send resized copies of both images and the generated change mask to Google Gemini through this project's Render AI service, under the free-tier data terms described below.</span>
           </label>
+          <p class="evaluation-caveat">Google's unpaid Gemini API tier may use submitted images and prompts to improve its products, and human reviewers may process them. Do not upload sensitive or confidential imagery. <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener noreferrer">Read Google's Gemini API terms</a>. Free-tier eligibility and limits vary; requests from a billed project may incur charges.</p>
           <p class="evaluation-status ai-status" id="ai-status" role="status">No images are sent unless you check this box and choose Analyze with AI.</p>
           <div class="ai-results" id="ai-results" hidden>
             <div class="ai-summary-block"><span class="evaluation-kicker">AI SUMMARY</span><p id="ai-summary"></p></div>

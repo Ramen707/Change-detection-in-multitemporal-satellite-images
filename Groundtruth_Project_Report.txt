@@ -80,7 +80,7 @@ The sensitivity control changes the decision margin around the cluster boundary.
 
 AI-assisted interpretation
 
-After the local mask is generated, users may opt in to a cloud vision-model call. The app sends resized earlier and later images plus the binary candidate mask to the project API, which forwards them to OpenAI and returns a short description of likely visible categories. This is a separate interpretation aid: it does not create or modify the PCA + K-means mask, it is not trained on the eight-scene collection, and it may misclassify subtle or seasonal differences. The feature requires user consent for each request and may incur API usage charges.
+After the local mask is generated, users may opt in to a cloud vision-model call. The app sends resized earlier and later images plus the binary candidate mask to the project API, which forwards them to Google Gemini and returns a short description of likely visible categories. This is a separate interpretation aid: it does not create or modify the PCA + K-means mask, it is not trained on the eight-scene collection, and it may misclassify subtle or seasonal differences. The feature requires consent for each request. The Gemini unpaid tier has account and rate limits, and Google may use submitted content to improve its products; human reviewers may process it. Billed projects may incur API charges. Confidential imagery should not be submitted through the free tier.
 6. MODEL FITTING / TRAINING
 
 The local change-map algorithm has no supervised training phase and no trained set of model weights. For each new image pair, it calculates that pair’s difference features, estimates PCA directions from those features, and fits two K-means cluster centres to them. In machine-learning terms, PCA and K-means are fitted anew to the current pair during analysis. The optional AI interpretation uses a pretrained cloud vision model; it is not fine-tuned on this project’s eight scenes and does not alter the locally generated mask.
@@ -156,7 +156,7 @@ Functional checks can confirm that valid pairs load, incompatible image shapes a
 - The described image collection has no accompanying ground-truth masks or reported benchmark scores.
 - The method operates on image pixels and does not preserve geographic coordinates or area in square metres.
 - The optional AI interpretation can mistake shadows, seasonal variation, image artefacts, or low-resolution features for land-cover change.
-- Cloud AI interpretation sends the resized image pair and mask to the project API, which forwards them to OpenAI. API requests may incur usage charges.
+- Cloud AI interpretation sends the resized image pair and mask to the project API, which forwards them to Google Gemini. Gemini free-tier use is subject to project eligibility and rate limits. Google may use unpaid-tier images and prompts to improve its products, and human reviewers may process them; avoid confidential imagery. Billed projects may incur charges.
 
 11. CONCLUSION
 
