@@ -4,7 +4,7 @@ Project Report
 
 1. PROJECT SUMMARY
 
-Groundtruth compares two satellite views of the same area captured at different times. It highlights pixels whose visible colour values differ and produces a change mask, an overlay, and a difference image. The method combines per-pixel image differencing, Principal Component Analysis (PCA), and two-cluster K-means. It is an unsupervised change-detection baseline: it finds visual differences but does not identify what caused them or assign semantic labels such as building, road, or forest. An optional cloud AI interpretation can suggest likely visible categories from the image pair and mask; it is not ground truth.
+Groundtruth compares two satellite views of the same area captured at different times. It highlights pixels whose visible colour values differ and produces a change mask, an overlay, and a difference image. The method combines per-pixel image differencing, Principal Component Analysis (PCA), and two-cluster K-means. An optional AI-assisted interpretation helps determine likely visible change types and directions, such as building additions or removals and vegetation loss or regrowth. These interpretations support review and should be treated as suggestions rather than verified ground truth.
 
 2. PROBLEM AND OBJECTIVES
 
@@ -80,10 +80,10 @@ The sensitivity control changes the decision margin around the cluster boundary.
 
 AI-assisted interpretation
 
-After the local mask is generated, users may opt in to a cloud vision-model call. The app sends resized earlier and later images plus the binary candidate mask to the project API, which forwards them to Google Gemini and returns a short description of likely visible categories. This is a separate interpretation aid: it does not create or modify the PCA + K-means mask, it is not trained on the eight-scene collection, and it may misclassify subtle or seasonal differences. The feature requires consent for each request. The Gemini unpaid tier has account and rate limits, and Google may use submitted content to improve its products; human reviewers may process it. Billed projects may incur API charges. Confidential imagery should not be submitted through the free tier.
+AI helps determine likely types and directions of visible change by comparing the earlier and later views with the candidate change mask. It may describe patterns such as new or removed structures, vegetation loss or regrowth, and changes in water or roads. This adds a semantic interpretation to the pixel-level result and can help users understand what the detected differences may represent. AI descriptions are preliminary suggestions: they can miss subtle changes or confuse real change with shadows, seasonality, image artefacts, or low image detail. Review them against the original imagery and trusted reference data. The AI interpretation is not trained or fine-tuned on the eight-scene collection and does not change the PCA + K-means mask. Use the feature only with imagery whose data terms permit AI review; avoid confidential images.
 6. MODEL FITTING / TRAINING
 
-The local change-map algorithm has no supervised training phase and no trained set of model weights. For each new image pair, it calculates that pair’s difference features, estimates PCA directions from those features, and fits two K-means cluster centres to them. In machine-learning terms, PCA and K-means are fitted anew to the current pair during analysis. The optional AI interpretation uses a pretrained cloud vision model; it is not fine-tuned on this project’s eight scenes and does not alter the locally generated mask.
+The local change-map algorithm has no supervised training phase and no trained set of model weights. For each new image pair, it calculates difference features for that pair, estimates PCA directions from those features, and fits two K-means cluster centres to them. In machine-learning terms, PCA and K-means are fitted anew to the current pair during analysis. The separate AI-assisted interpretation uses a pretrained vision model to describe likely visible change types; it is not trained or fine-tuned on the eight-scene collection and does not alter the locally generated mask.
 
 Because the model is fitted to each pair independently, the same sensitivity setting can produce different changed-area percentages on different scenes. The method does not learn a reusable building, vegetation, or water classifier across multiple scenes.
 
@@ -97,9 +97,9 @@ Because the model is fitted to each pair independently, the same sensitivity set
 6. Apply the sensitivity boundary and 3 × 3 majority filter.
 7. Produce the change mask, difference layer, and change overlay on the later image.
 8. Report changed-pixel count and changed-area percentage.
-9. Optionally, after explicit consent, send resized copies of both dates and the generated mask to the cloud AI service for a brief visual interpretation.
 
-The outputs answer “where do the image pixels differ?” They do not explain why a difference occurred or determine an object category.
+
+The local workflow answers “where do the image pixels differ?” AI-assisted interpretation can help determine likely change categories and direction, such as new construction, structure removal, vegetation loss or regrowth, or water changes. These descriptions provide context for reviewing the map; they do not establish a cause or replace ground-truth validation.
 
 8. OUTPUT VALUES AND INTERPRETATION
 
@@ -108,7 +108,7 @@ For an analyzed image of width W and height H:
   Total pixels = W × H
   Changed-area percentage = 100 × changed-pixel count / (W × H)
 
-The summary values are pair-specific. Changed-pixel count and changed-area percentage describe the detected mask, not correctness. The overlay shows the highlighted mask on the later image; the change mask shows the binary result; the difference layer visualizes per-pixel intensity differences.
+The summary values are pair-specific. Changed-pixel count and changed-area percentage describe the detected mask, not correctness. The overlay shows the highlighted mask on the later image; the change mask shows the binary result; the difference layer visualizes per-pixel intensity differences. AI-assisted descriptions help interpret what types of features may have changed, while remaining unverified suggestions.
 
 9. TESTING, VALIDATION, AND ACCURACY
 
@@ -155,9 +155,9 @@ Functional checks can confirm that valid pairs load, incompatible image shapes a
 - The output is a binary change estimate, not semantic segmentation.
 - The described image collection has no accompanying ground-truth masks or reported benchmark scores.
 - The method operates on image pixels and does not preserve geographic coordinates or area in square metres.
-- The optional AI interpretation can mistake shadows, seasonal variation, image artefacts, or low-resolution features for land-cover change.
-- Cloud AI interpretation sends the resized image pair and mask to the project API, which forwards them to Google Gemini. Gemini free-tier use is subject to project eligibility and rate limits. Google may use unpaid-tier images and prompts to improve its products, and human reviewers may process them; avoid confidential imagery. Billed projects may incur charges.
+- AI-assisted descriptions can mistake shadows, seasonal variation, image artefacts, or low-resolution features for land-cover change and should be checked against the original images.
+- Use AI interpretation only with imagery whose data terms permit AI review; avoid confidential imagery.
 
 11. CONCLUSION
 
-Groundtruth provides a local unsupervised baseline for comparing multi-temporal Landsat-derived image pairs, with optional cloud AI summaries of likely visible change categories. PCA, two-cluster K-means, and spatial filtering produce the actual pixel mask; AI interpretations are suggestions. The dataset supplies examples from eight locations, but reliable claims about model accuracy require labelled reference masks and independent scene-level testing. The built-in synthetic scores are only a demonstration, and real-scene accuracy remains not measured.
+Groundtruth provides a local unsupervised baseline for comparing multi-temporal Landsat-derived image pairs. AI-assisted interpretation helps determine likely visible change types and directions, making the pixel map easier to understand by suggesting whether differences may involve buildings, vegetation, water, roads, or other features. These interpretations remain suggestions for review; PCA, two-cluster K-means, and spatial filtering produce the pixel mask. The dataset supplies examples from eight locations, but reliable claims about model accuracy require labelled reference masks and independent scene-level testing. The built-in synthetic scores are only a demonstration, and real-scene accuracy remains not measured.
